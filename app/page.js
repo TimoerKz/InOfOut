@@ -563,11 +563,13 @@ export default function Home() {
                 }}
               />
             )}
-            <strong>
-              {view === "Jaar"
-                ? cursor.getFullYear()
-                : `${MN[startMonth]} ${cursor.getFullYear()}`}
-            </strong>
+            {view !== "Maand" && (
+              <strong>
+                {view === "Jaar"
+                  ? cursor.getFullYear()
+                  : `${MN[startMonth]} ${cursor.getFullYear()}`}
+              </strong>
+            )}
             <button onClick={() => shift(1)}>→</button>
           </div>
         )}
