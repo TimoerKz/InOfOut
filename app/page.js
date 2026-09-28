@@ -62,6 +62,7 @@ export default function Home() {
     [selected, setSelected] = useState(),
     [suggestions, setSuggestions] = useState([]),
     [modal, setModal] = useState(false),
+    [editingActivityId, setEditingActivityId] = useState(null),
     [authModal, setAuthModal] = useState(false),
     [authEmail, setAuthEmail] = useState(""),
     [authMessage, setAuthMessage] = useState(""),
@@ -346,25 +347,51 @@ export default function Home() {
     e.preventDefault();
     setBusy(true);
     try {
-      let a = await supabase
-        .from("activities")
-        .insert({
-          group_id: group.id,
-          title: form.title,
-          location: form.location || null,
-          color: form.color,
-          created_by: session.user.id,
-        })
-        .select()
-        .single();
-      if (a.error) throw a.error;
-      let rows = form.options.map((o) => ({
+      if (editingActivityId) {
+        const { error: activityError } = await supabase
+          .from("activities")
+          .update({ title: form.title, location: form.location || null, color: form.color })
+          .eq("id", editingActivityId);
+        if (activityError) throw activityError;
+
+        const existingOptions = events.filter((event) => event.id === editingActivityId);
+        const retainedIds = form.options.map((option) => option.optionId).filter(Boolean);
+        for (const option of form.options) {
+          const starts_at = new Date(`${option.date}T${toQuarterHour(option.time)}`).toISOString();
+          const result = option.optionId
+            ? await supabase.from("activity_options").update({ starts_at }).eq("id", option.optionId)
+            : await supabase.from("activity_options").insert({ activity_id: editingActivityId, starts_at });
+          if (result.error) throw result.error;
+        }
+        const removedIds = existingOptions
+          .filter((option) => !retainedIds.includes(option.optionId))
+          .map((option) => option.optionId);
+        if (removedIds.length) {
+          const { error: deleteOptionsError } = await supabase.from("activity_options").delete().in("id", removedIds);
+          if (deleteOptionsError) throw deleteOptionsError;
+        }
+      } else {
+        const a = await supabase
+          .from("activities")
+          .insert({
+            group_id: group.id,
+            title: form.title,
+            location: form.location || null,
+            color: form.color,
+            created_by: session.user.id,
+          })
+          .select()
+          .single();
+        if (a.error) throw a.error;
+        const rows = form.options.map((o) => ({
           activity_id: a.data.id,
           starts_at: new Date(`${o.date}T${toQuarterHour(o.time)}`).toISOString(),
-        })),
-        r = await supabase.from("activity_options").insert(rows);
-      if (r.error) throw r.error;
+        }));
+        const { error: optionsError } = await supabase.from("activity_options").insert(rows);
+        if (optionsError) throw optionsError;
+      }
       setModal(false);
+      setEditingActivityId(null);
       setForm({
         title: "",
         location: "",
@@ -381,6 +408,7 @@ export default function Home() {
 
   const openNewActivity = (date = new Date()) => {
     setSelected(undefined);
+    setEditingActivityId(null);
     setForm({
       title: "",
       location: "",
@@ -388,6 +416,32 @@ export default function Home() {
       options: [{ date: dk(date), time: "19:00" }],
     });
     setModal(true);
+  };
+
+  const openEditActivity = () => {
+    if (!selected) return;
+    const options = events
+      .filter((event) => event.id === selected.id)
+      .map((event) => ({ optionId: event.optionId, date: event.date, time: event.time }));
+    setForm({ title: selected.title, location: selected.place === "Nog te bepalen" ? "" : selected.place, color: selected.color, options });
+    setEditingActivityId(selected.id);
+    setSelected(undefined);
+    setModal(true);
+  };
+
+  const deleteActivity = async () => {
+    if (!selected || !window.confirm(`Verwijder “${selected.title}”? Dit verwijdert ook alle momenten en stemmen.`)) return;
+    setBusy(true);
+    try {
+      const { error: deleteError } = await supabase.from("activities").delete().eq("id", selected.id);
+      if (deleteError) throw deleteError;
+      setSelected(undefined);
+      await load(group);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const vote = async (status) => {
@@ -579,6 +633,20 @@ export default function Home() {
       ),
     );
 
+  const activityOptions = selected ? events.filter((event) => event.id === selected.id) : [];
+  const recommendedOption = [...activityOptions]
+    .filter((option) => !option.isDismissed)
+    .sort((a, b) =>
+      b.ins.length - a.ins.length ||
+      b.maybes.length - a.maybes.length ||
+      a.outs.length - b.outs.length ||
+      a.date.localeCompare(b.date) ||
+      a.time.localeCompare(b.time),
+    )[0];
+  const canManageSelected = Boolean(
+    selected && (group?.role === "owner" || selected.createdBy === session?.user?.id),
+  );
+
   return (
     <main>
       <header>
@@ -722,6 +790,13 @@ export default function Home() {
           </button>
           <p className="eyebrow">DATUMOPTIE</p>
           <h2>{selected.title}</h2>
+          {activityOptions.length > 1 && recommendedOption && (
+            <div className="recommendation">
+              <span>Beste moment nu</span>
+              <strong>{recommendedOption.date} · {recommendedOption.time}</strong>
+              <small>{recommendedOption.ins.length} in · {recommendedOption.maybes.length} misschien · {recommendedOption.outs.length} out</small>
+            </div>
+          )}
           {selected.isConfirmed && (
             <div className="status-banner confirmed">
               <Check size={16} />
@@ -758,6 +833,12 @@ export default function Home() {
           >
             <MessageCircle size={15} /> WhatsApp
           </a>
+          {canManageSelected && (
+            <div className="activity-actions">
+              <button type="button" onClick={openEditActivity}>Activiteit bewerken</button>
+              <button type="button" className="danger" onClick={deleteActivity}>Verwijderen</button>
+            </div>
+          )}
           <div className="vote">
             <p>Kun je op dit moment?</p>
             <button
@@ -843,7 +924,7 @@ export default function Home() {
               </div>
             </div>
           </div>
-          {(group?.role === "owner" || selected.createdBy === session?.user?.id) && (
+          {canManageSelected && (
             <div className="confirm-section">
               {selected.isConfirmed ? (
                 <button
@@ -929,9 +1010,9 @@ export default function Home() {
               <X />
             </button>
             <p className="eyebrow">
-              NIEUWE ACTIVITEIT · {activities.length + 1}/7
+              {editingActivityId ? "ACTIVITEIT BEWERKEN" : `NIEUWE ACTIVITEIT · ${activities.length + 1}/7`}
             </p>
-            <h2>Wat gaan jullie doen?</h2>
+            <h2>{editingActivityId ? "Pas jullie plan aan" : "Wat gaan jullie doen?"}</h2>
             <label>
               Titel
               <input
@@ -1031,9 +1112,9 @@ export default function Home() {
             </button>
             <button
               className="primary"
-              disabled={busy || activities.length >= 7}
+              disabled={busy || (!editingActivityId && activities.length >= 7)}
             >
-              Opslaan
+              {editingActivityId ? "Wijzigingen opslaan" : "Opslaan"}
             </button>
           </form>
         </div>
