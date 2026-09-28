@@ -112,3 +112,4 @@ header{height:68px}.brand{font-size:20px}.brand-mark{border-radius:9px;padding:7
 .week-day:nth-child(6),.week-day:nth-child(7){background:#fff}.week-day:nth-child(7),.week-day:nth-child(8){background:var(--weekend)}
 @media(max-width:720px){.week-day:nth-child(7),.week-day:nth-child(8){background:var(--weekend)!important}}
 .week-day{min-height:300px}.activity-whatsapp{display:inline-flex;align-items:center;gap:7px;margin:4px 0 0 7px;padding:7px 10px;border:1px solid #b8d9c2;border-radius:7px;background:#eaf7ed;color:#1f6a3e;font-size:12px;font-weight:700;text-decoration:none}.activity-whatsapp:hover{background:#d9f0df}@media(max-width:720px){.week-day{min-height:0}.activity-whatsapp{margin-left:5px}}
+@media(max-width:720px){.calendar.month .event,.mini-month .event{font-size:0!important;color:transparent}.calendar.month .event{height:7px;padding:0}.mini-month .event{height:6px;padding:0}}
