@@ -643,7 +643,7 @@ export default function Home() {
       ) : view === "Week" ? (
         <Week cursor={cursor} events={byDate} select={setSelected} />
       ) : (
-        <section className={months > 1 ? "year-view" : "calendar month"}>
+        <section className={months > 1 ? `year-view ${view === "Kwartaal" ? "quarter-view" : ""}` : "calendar month"}>
           {Array.from({ length: months }, (_, i) => (
             <Month
               key={i}
