@@ -62,6 +62,10 @@ export default function Home() {
     [selected, setSelected] = useState(),
     [suggestions, setSuggestions] = useState([]),
     [modal, setModal] = useState(false),
+    [authModal, setAuthModal] = useState(false),
+    [authEmail, setAuthEmail] = useState(""),
+    [authMessage, setAuthMessage] = useState(""),
+    [authMode, setAuthMode] = useState("save"),
     [onboard, setOnboard] = useState(false),
     [shareModal, setShareModal] = useState(false),
     [copied, setCopied] = useState(false),
@@ -302,6 +306,39 @@ export default function Home() {
       setTimeout(() => setCopied(false), 2500);
     } catch (err) {
       setError("Kopiëren mislukt. Kopieer de link handmatig.");
+    }
+  };
+
+  const requestEmailLink = async (event) => {
+    event.preventDefault();
+    const email = authEmail.trim().toLowerCase();
+    if (!email) return;
+    setBusy(true);
+    setAuthMessage("");
+    try {
+      const emailRedirectTo = window.location.origin;
+      if (authMode === "save" && session?.user?.is_anonymous) {
+        const { error: linkError } = await supabase.auth.updateUser(
+          { email },
+          { emailRedirectTo },
+        );
+        if (!linkError) {
+          setAuthMessage("Controleer je e-mail en open de link om dit account te bewaren.");
+          return;
+        }
+        throw linkError;
+      }
+
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo },
+      });
+      if (error) throw error;
+      setAuthMessage("Controleer je e-mail en open de inloglink.");
+    } catch (error) {
+      setAuthMessage(error.message || "De e-mail kon niet worden verstuurd.");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -549,6 +586,16 @@ export default function Home() {
           <span className="brand-mark">i/o</span>InOfOut
         </div>
         <div className="header-actions">
+          <button
+            className="account-button"
+            onClick={() => {
+              setAuthMessage("");
+              setAuthMode(session?.user?.is_anonymous ? "save" : "login");
+              setAuthModal(true);
+            }}
+          >
+            {session?.user?.is_anonymous ? "Account bewaren" : session?.user?.email || "Account"}
+          </button>
           <button
             className="group group-button"
             onClick={() => setGroupPicker(true)}
@@ -1038,6 +1085,49 @@ export default function Home() {
               💡 Deel de link in jullie groepsapp zodat iedereen kan aangeven wie &quot;In&quot; of &quot;Out&quot; is.
             </p>
           </div>
+        </div>
+      )}
+
+      {authModal && (
+        <div className="modal-backdrop">
+          <form className="new-event auth-modal" onSubmit={requestEmailLink}>
+            <button type="button" className="close" onClick={() => setAuthModal(false)}>
+              <X />
+            </button>
+            <p className="eyebrow">JOUW ACCOUNT</p>
+            <h2>{authMode === "save" ? "Bewaar je agenda’s" : "Inloggen"}</h2>
+            <p className="subtle">
+              {authMode === "save"
+                ? "Koppel je e-mailadres om je groepen en stemmen op elk apparaat terug te zien."
+                : "We sturen een veilige inloglink naar je e-mailadres."}
+            </p>
+            {session?.user?.is_anonymous && (
+              <div className="auth-modes">
+                <button type="button" className={authMode === "save" ? "active" : ""} onClick={() => { setAuthMode("save"); setAuthMessage(""); }}>
+                  Deze agenda bewaren
+                </button>
+                <button type="button" className={authMode === "login" ? "active" : ""} onClick={() => { setAuthMode("login"); setAuthMessage(""); }}>
+                  Ik heb al een account
+                </button>
+              </div>
+            )}
+            <label>
+              E-mailadres
+              <input
+                required
+                type="email"
+                value={authEmail}
+                onChange={(event) => setAuthEmail(event.target.value)}
+                placeholder="jij@voorbeeld.nl"
+                autoFocus
+              />
+            </label>
+            {authMessage && <p className="auth-message">{authMessage}</p>}
+            <button className="primary" disabled={busy}>
+              {busy ? "Versturen…" : "Stuur magic link"}
+            </button>
+            <p className="auth-note">Geen wachtwoord nodig.</p>
+          </form>
         </div>
       )}
 
