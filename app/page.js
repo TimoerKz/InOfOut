@@ -14,10 +14,13 @@ import {
 } from "lucide-react";
 import {
   createGroup,
+  createInvite,
+  getGroupMembers,
+  getInvitePreview,
   getMyGroups,
   getOrCreateAnonymousSession,
-  getGroupPreview,
-  joinGroup,
+  joinGroupWithInvite,
+  removeGroupMember,
 } from "../lib/group-service";
 import { supabase } from "../lib/supabase";
 
@@ -69,6 +72,9 @@ export default function Home() {
     [authMode, setAuthMode] = useState("save"),
     [onboard, setOnboard] = useState(false),
     [shareModal, setShareModal] = useState(false),
+    [inviteToken, setInviteToken] = useState(""),
+    [membersModal, setMembersModal] = useState(false),
+    [members, setMembers] = useState([]),
     [copied, setCopied] = useState(false),
     [joinInvite, setJoinInvite] = useState(null),
     [error, setError] = useState(""),
@@ -160,16 +166,16 @@ export default function Home() {
         setSession(s);
 
         const params = new URLSearchParams(window.location.search);
-        const inviteParam = params.get("join") || params.get("g");
+        const inviteParam = params.get("invite");
         const activityOptionId = params.get("activity");
 
         let gs = await getMyGroups();
         setGroups(gs);
 
         if (inviteParam) {
-          const alreadyMember = gs.find(
-            (g) => g.slug === inviteParam || g.id === inviteParam,
-          );
+          const preview = await getInvitePreview(inviteParam);
+          if (!preview) throw new Error("Deze uitnodiging is niet meer geldig.");
+          const alreadyMember = gs.find((g) => g.id === preview.id);
           if (alreadyMember) {
             setGroup(alreadyMember);
             const loaded = await load(alreadyMember, s);
@@ -177,18 +183,8 @@ export default function Home() {
             return;
           }
 
-          const preview = await getGroupPreview(inviteParam);
-          if (preview) {
-            setJoinInvite({ slugOrId: inviteParam, preview, activityOptionId });
-            return;
-          } else {
-            setJoinInvite({
-              slugOrId: inviteParam,
-              preview: { name: "deze groep" },
-              activityOptionId,
-            });
-            return;
-          }
+          setJoinInvite({ token: inviteParam, preview, activityOptionId });
+          return;
         }
 
         if (!gs.length) {
@@ -231,9 +227,9 @@ export default function Home() {
     try {
       const f = new FormData(e.currentTarget);
       const name = f.get("name")?.trim();
-      if (!name || !joinInvite?.slugOrId) return;
+      if (!name || !joinInvite?.token) return;
 
-      const joined = await joinGroup(joinInvite.slugOrId, name);
+      const joined = await joinGroupWithInvite(joinInvite.token, name);
       setGroup(joined);
       setGroups((current) =>
         current.some((g) => g.id === joined.id) ? current : [...current, joined],
@@ -260,23 +256,90 @@ export default function Home() {
   };
 
   const getShareUrl = () => {
-    if (typeof window === "undefined" || !group) return "";
-    return `${window.location.origin}/?join=${group.slug || group.id}`;
+    if (typeof window === "undefined" || !inviteToken) return "";
+    return `${window.location.origin}/?invite=${inviteToken}`;
   };
 
-  const getActivityShareUrl = (activity) => {
-    const groupUrl = getShareUrl();
-    if (!groupUrl || !activity?.optionId) return groupUrl;
-    return `${groupUrl}&activity=${activity.optionId}`;
+  const openShare = async () => {
+    if (!group || !session?.user?.id) return;
+    setBusy(true);
+    try {
+      const token = await createInvite(group.id, session.user.id);
+      setInviteToken(token);
+      setShareModal(true);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeInvite = async () => {
+    if (!inviteToken || !window.confirm("Deze uitnodigingslink intrekken? Nieuwe deelnemers kunnen hem daarna niet meer gebruiken.")) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase
+        .from("group_invites")
+        .update({ revoked_at: new Date().toISOString() })
+        .eq("token", inviteToken);
+      if (error) throw error;
+      setInviteToken("");
+      setShareModal(false);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openMembers = async () => {
+    if (!group) return;
+    setBusy(true);
+    try {
+      setMembers(await getGroupMembers(group.id));
+      setMembersModal(true);
+      setGroupPicker(false);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeMember = async (userId) => {
+    if (!group || !window.confirm("Dit lid uit de groep verwijderen?")) return;
+    setBusy(true);
+    try {
+      await removeGroupMember(group.id, userId);
+      setMembers((current) => current.filter((member) => member.user_id !== userId));
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const getActivityShareUrl = (activity, token = inviteToken) => {
+    if (typeof window === "undefined" || !token) return "";
+    return `${window.location.origin}/?invite=${token}&activity=${activity.optionId}`;
+  };
+
+  const ensureInviteToken = async () => {
+    if (inviteToken) return inviteToken;
+    if (!group || !session?.user?.id) throw new Error("Je kunt nog geen uitnodiging maken.");
+    const token = await createInvite(group.id, session.user.id);
+    setInviteToken(token);
+    return token;
   };
 
   const activityShareText = (activity) =>
     `${activity.title} · ${activity.date} om ${activity.time}${activity.place ? ` · ${activity.place}` : ""}`;
 
   const shareActivity = async (activity) => {
-    const url = getActivityShareUrl(activity);
-    const text = activityShareText(activity);
     try {
+      const token = await ensureInviteToken();
+      const url = getActivityShareUrl(activity, token);
+      const text = activityShareText(activity);
       if (navigator.share) {
         await navigator.share({ title: `${activity.title} · InOfOut`, text, url });
         return;
@@ -286,6 +349,16 @@ export default function Home() {
       setTimeout(() => setCopied(false), 2500);
     } catch (err) {
       if (err.name !== "AbortError") setError("Delen mislukt. Probeer het opnieuw.");
+    }
+  };
+
+  const shareActivityOnWhatsApp = async (activity) => {
+    try {
+      const token = await ensureInviteToken();
+      const url = getActivityShareUrl(activity, token);
+      window.open(`https://wa.me/?text=${encodeURIComponent(`${activityShareText(activity)}\n\n${url}`)}`, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setError(error.message);
     }
   };
 
@@ -675,7 +748,7 @@ export default function Home() {
           {group && (
             <button
               className="share-button"
-              onClick={() => setShareModal(true)}
+              onClick={openShare}
               title="Deel uitnodigingslink"
             >
               <Share2 size={15} />
@@ -825,14 +898,9 @@ export default function Home() {
           <button type="button" className="activity-share" onClick={() => shareActivity(selected)}>
             <Share2 size={15} /> {copied ? "Gekopieerd" : "Deel activiteit"}
           </button>
-          <a
-            className="activity-whatsapp"
-            href={`https://wa.me/?text=${encodeURIComponent(`${activityShareText(selected)}\n\n${getActivityShareUrl(selected)}`)}`}
-            target="_blank"
-            rel="noreferrer"
-          >
+          <button type="button" className="activity-whatsapp" onClick={() => shareActivityOnWhatsApp(selected)}>
             <MessageCircle size={15} /> WhatsApp
-          </a>
+          </button>
           {canManageSelected && (
             <div className="activity-actions">
               <button type="button" onClick={openEditActivity}>Activiteit bewerken</button>
@@ -1165,6 +1233,9 @@ export default function Home() {
             <p className="share-hint">
               💡 Deel de link in jullie groepsapp zodat iedereen kan aangeven wie &quot;In&quot; of &quot;Out&quot; is.
             </p>
+            <button type="button" className="revoke-invite" disabled={busy} onClick={revokeInvite}>
+              Uitnodigingslink intrekken
+            </button>
           </div>
         </div>
       )}
@@ -1315,12 +1386,39 @@ export default function Home() {
                 <Plus size={17} /> Nieuwe groep
               </button>
               {group?.role === "owner" && (
-                <button type="button" className="group-rename-link" onClick={() => { setGroupPicker(false); setRenaming(true); }}>
-                  Naam van deze groep wijzigen
-                </button>
+                <>
+                  <button type="button" className="group-rename-link" onClick={openMembers}>Leden beheren</button>
+                  <button type="button" className="group-rename-link" onClick={() => { setGroupPicker(false); setRenaming(true); }}>
+                    Naam van deze groep wijzigen
+                  </button>
+                </>
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {membersModal && (
+        <div className="modal-backdrop">
+          <div className="new-event members-modal">
+            <button type="button" className="close" onClick={() => setMembersModal(false)}><X /></button>
+            <p className="eyebrow">LEDEN</p>
+            <h2>{group?.name}</h2>
+            <div className="members-list">
+              {members.map((member) => {
+                const isMe = member.user_id === session?.user?.id;
+                return (
+                  <div className="member-row" key={member.user_id}>
+                    <div>
+                      <strong>{member.profiles?.display_name || (isMe ? "Jij" : "Groepslid")}</strong>
+                      <span>{member.role === "owner" ? "Beheerder" : "Lid"}</span>
+                    </div>
+                    {!isMe && <button type="button" disabled={busy} onClick={() => removeMember(member.user_id)}>Verwijder</button>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 
