@@ -303,6 +303,17 @@ export default function Home() {
     }
   };
 
+  const openNewActivity = (date = new Date()) => {
+    setSelected(undefined);
+    setForm({
+      title: "",
+      location: "",
+      color: "coral",
+      options: [{ date: dk(date), time: "19:00" }],
+    });
+    setModal(true);
+  };
+
   const vote = async (status) => {
     let r = await supabase
       .from("votes")
@@ -529,7 +540,7 @@ export default function Home() {
         <button
           className="primary"
           disabled={!group}
-          onClick={() => setModal(true)}
+          onClick={() => openNewActivity()}
         >
           <Plus size={18} />
           Nieuwe activiteit
@@ -611,6 +622,7 @@ export default function Home() {
               month={startMonth + i}
               events={byDate}
               select={setSelected}
+              newActivity={openNewActivity}
               compact={months > 1}
             />
           ))}
@@ -1113,7 +1125,7 @@ export default function Home() {
   );
 }
 
-function Month({ year, month, events, select, compact }) {
+function Month({ year, month, events, select, newActivity, compact }) {
   let first = new Date(year, month, 1),
     off = (first.getDay() + 6) % 7,
     cells = Array.from({ length: 42 }, (_, i) => {
@@ -1131,13 +1143,25 @@ function Month({ year, month, events, select, compact }) {
         <div
           className={`day ${d.getMonth() !== month ? "outside" : ""} ${d.getDay() === 0 || d.getDay() === 6 ? "weekend" : ""}`}
           key={dk(d)}
+          role={d.getMonth() === month ? "button" : undefined}
+          tabIndex={d.getMonth() === month ? 0 : undefined}
+          onClick={() => d.getMonth() === month && newActivity(d)}
+          onKeyDown={(event) => {
+            if (d.getMonth() === month && (event.key === "Enter" || event.key === " ")) {
+              event.preventDefault();
+              newActivity(d);
+            }
+          }}
         >
           {d.getDay() === 1 && <span className="week-number">W{isoWeek(d)}</span>}
           <span className="date">{d.getDate()}</span>
           {(events[dk(d)] || []).map((e) => (
             <button
               className={`event ${e.color} ${e.isConfirmed ? "confirmed" : ""} ${e.isDismissed ? "dismissed" : ""}`}
-              onClick={() => select(e)}
+              onClick={(event) => {
+                event.stopPropagation();
+                select(e);
+              }}
               key={e.optionId}
               title={e.isConfirmed ? "Definitief gekozen" : e.isDismissed ? "Vervallen optie" : ""}
             >
