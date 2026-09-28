@@ -149,6 +149,7 @@ export default function Home() {
 
         const params = new URLSearchParams(window.location.search);
         const inviteParam = params.get("join") || params.get("g");
+        const activityOptionId = params.get("activity");
 
         let gs = await getMyGroups();
         setGroups(gs);
@@ -159,18 +160,20 @@ export default function Home() {
           );
           if (alreadyMember) {
             setGroup(alreadyMember);
-            await load(alreadyMember, s);
+            const loaded = await load(alreadyMember, s);
+            if (activityOptionId) setSelected(loaded.find((event) => event.optionId === activityOptionId));
             return;
           }
 
           const preview = await getGroupPreview(inviteParam);
           if (preview) {
-            setJoinInvite({ slugOrId: inviteParam, preview });
+            setJoinInvite({ slugOrId: inviteParam, preview, activityOptionId });
             return;
           } else {
             setJoinInvite({
               slugOrId: inviteParam,
               preview: { name: "deze groep" },
+              activityOptionId,
             });
             return;
           }
@@ -180,7 +183,8 @@ export default function Home() {
           setOnboard(true);
         } else {
           setGroup(gs[0]);
-          await load(gs[0], s);
+          const loaded = await load(gs[0], s);
+          if (activityOptionId) setSelected(loaded.find((event) => event.optionId === activityOptionId));
         }
       } catch (e) {
         setError(e.message);
@@ -232,7 +236,10 @@ export default function Home() {
         );
       }
 
-      await load(joined, session);
+      const loaded = await load(joined, session);
+      if (joinInvite?.activityOptionId) {
+        setSelected(loaded.find((event) => event.optionId === joinInvite.activityOptionId));
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -243,6 +250,28 @@ export default function Home() {
   const getShareUrl = () => {
     if (typeof window === "undefined" || !group) return "";
     return `${window.location.origin}/?join=${group.slug || group.id}`;
+  };
+
+  const getActivityShareUrl = (activity) => {
+    const groupUrl = getShareUrl();
+    if (!groupUrl || !activity?.optionId) return groupUrl;
+    return `${groupUrl}&activity=${activity.optionId}`;
+  };
+
+  const shareActivity = async (activity) => {
+    const url = getActivityShareUrl(activity);
+    const text = `${activity.title} · ${activity.date} om ${activity.time}${activity.place ? ` · ${activity.place}` : ""}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `${activity.title} · InOfOut`, text, url });
+        return;
+      }
+      await navigator.clipboard.writeText(`${text}\n\n${url}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch (err) {
+      if (err.name !== "AbortError") setError("Delen mislukt. Probeer het opnieuw.");
+    }
   };
 
   const copyShareLink = async () => {
@@ -661,6 +690,9 @@ export default function Home() {
             <MapPin size={16} />
             {selected.place}
           </p>
+          <button type="button" className="activity-share" onClick={() => shareActivity(selected)}>
+            <Share2 size={15} /> {copied ? "Gekopieerd" : "Deel activiteit"}
+          </button>
           <div className="vote">
             <p>Kun je op dit moment?</p>
             <button
