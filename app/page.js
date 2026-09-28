@@ -48,6 +48,7 @@ const emptyOption = () => ({ date: dk(new Date()), time: "19:00" });
 
 export default function Home() {
   const [group, setGroup] = useState(),
+    [groups, setGroups] = useState([]),
     [session, setSession] = useState(),
     [events, setEvents] = useState([]),
     [hidden, setHidden] = useState([]),
@@ -62,6 +63,8 @@ export default function Home() {
     [cursor, setCursor] = useState(new Date()),
     [view, setView] = useState("Maand"),
     [renaming, setRenaming] = useState(false),
+    [groupPicker, setGroupPicker] = useState(false),
+    [newGroup, setNewGroup] = useState(false),
     [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
     title: "",
@@ -148,6 +151,7 @@ export default function Home() {
         const inviteParam = params.get("join") || params.get("g");
 
         let gs = await getMyGroups();
+        setGroups(gs);
 
         if (inviteParam) {
           const alreadyMember = gs.find(
@@ -190,9 +194,13 @@ export default function Home() {
     try {
       let f = new FormData(e.currentTarget),
         g = await createGroup(f.get("group"), f.get("name"));
-      setGroup(g);
+      const ownerGroup = { ...g, role: "owner" };
+      setGroup(ownerGroup);
+      setGroups((current) => [...current, ownerGroup]);
       setOnboard(false);
-      await load(g);
+      setNewGroup(false);
+      setGroupPicker(false);
+      await load(ownerGroup);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -211,6 +219,9 @@ export default function Home() {
 
       const joined = await joinGroup(joinInvite.slugOrId, name);
       setGroup(joined);
+      setGroups((current) =>
+        current.some((g) => g.id === joined.id) ? current : [...current, joined],
+      );
       setJoinInvite(null);
 
       if (typeof window !== "undefined" && window.history.replaceState) {
@@ -490,8 +501,8 @@ export default function Home() {
         <div className="header-actions">
           <button
             className="group group-button"
-            onClick={() => setRenaming(true)}
-            title="Groepsnaam wijzigen"
+            onClick={() => setGroupPicker(true)}
+            title="Groep kiezen of beheren"
           >
             <Users size={17} />
             {group?.name || "Nieuwe groep"}
@@ -1007,6 +1018,65 @@ export default function Home() {
               {busy ? "Opslaan…" : "Naam opslaan"}
             </button>
           </form>
+        </div>
+      )}
+
+      {groupPicker && (
+        <div className="modal-backdrop">
+          {newGroup ? (
+            <form className="new-event group-picker" onSubmit={start}>
+              <button type="button" className="close" onClick={() => setNewGroup(false)}>
+                <X />
+              </button>
+              <p className="eyebrow">NIEUWE GROEP</p>
+              <h2>Voor wie is deze agenda?</h2>
+              <label>Jouw naam<input required name="name" autoFocus /></label>
+              <label>Groepsnaam<input required name="group" placeholder="Bijv. Familie" maxLength={80} /></label>
+              <button className="primary" disabled={busy}>{busy ? "Groep maken…" : "Groep maken"}</button>
+            </form>
+          ) : (
+            <div className="new-event group-picker">
+              <button type="button" className="close" onClick={() => setGroupPicker(false)}><X /></button>
+              <p className="eyebrow">JOUW GROEPEN</p>
+              <h2>Kies een agenda</h2>
+              <div className="group-list">
+                {groups.map((candidate) => (
+                  <button
+                    type="button"
+                    key={candidate.id}
+                    className={`group-choice ${candidate.id === group?.id ? "active" : ""}`}
+                    disabled={busy}
+                    onClick={async () => {
+                      if (candidate.id === group?.id) return setGroupPicker(false);
+                      setBusy(true);
+                      try {
+                        setGroup(candidate);
+                        setSelected(undefined);
+                        setHidden([]);
+                        await load(candidate, session);
+                        setGroupPicker(false);
+                      } catch (e) {
+                        setError(e.message);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    <span>{candidate.name}</span>
+                    {candidate.id === group?.id && <span>Actief</span>}
+                  </button>
+                ))}
+              </div>
+              <button type="button" className="primary" onClick={() => setNewGroup(true)}>
+                <Plus size={17} /> Nieuwe groep
+              </button>
+              {group?.role === "owner" && (
+                <button type="button" className="group-rename-link" onClick={() => { setGroupPicker(false); setRenaming(true); }}>
+                  Naam van deze groep wijzigen
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
