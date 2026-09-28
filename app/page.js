@@ -38,6 +38,13 @@ const MN = [
   WD = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"];
 const dk = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const toQuarterHour = (time) => {
+  if (!/^\d{2}:\d{2}$/.test(time)) return "19:00";
+  const [hours, minutes] = time.split(":").map(Number);
+  const total = hours * 60 + minutes;
+  const rounded = Math.round(total / 15) * 15;
+  return `${String(Math.floor((rounded % 1440) / 60)).padStart(2, "0")}:${String(rounded % 60).padStart(2, "0")}`;
+};
 const isoWeek = (date) => {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
@@ -258,9 +265,12 @@ export default function Home() {
     return `${groupUrl}&activity=${activity.optionId}`;
   };
 
+  const activityShareText = (activity) =>
+    `${activity.title} · ${activity.date} om ${activity.time}${activity.place ? ` · ${activity.place}` : ""}`;
+
   const shareActivity = async (activity) => {
     const url = getActivityShareUrl(activity);
-    const text = `${activity.title} · ${activity.date} om ${activity.time}${activity.place ? ` · ${activity.place}` : ""}`;
+    const text = activityShareText(activity);
     try {
       if (navigator.share) {
         await navigator.share({ title: `${activity.title} · InOfOut`, text, url });
@@ -313,7 +323,7 @@ export default function Home() {
       if (a.error) throw a.error;
       let rows = form.options.map((o) => ({
           activity_id: a.data.id,
-          starts_at: new Date(`${o.date}T${o.time}`).toISOString(),
+          starts_at: new Date(`${o.date}T${toQuarterHour(o.time)}`).toISOString(),
         })),
         r = await supabase.from("activity_options").insert(rows);
       if (r.error) throw r.error;
@@ -603,7 +613,7 @@ export default function Home() {
                 }}
               />
             )}
-            {view !== "Maand" && (
+            {view === "Week" && (
               <strong>
                 {view === "Jaar"
                   ? cursor.getFullYear()
@@ -693,6 +703,14 @@ export default function Home() {
           <button type="button" className="activity-share" onClick={() => shareActivity(selected)}>
             <Share2 size={15} /> {copied ? "Gekopieerd" : "Deel activiteit"}
           </button>
+          <a
+            className="activity-whatsapp"
+            href={`https://wa.me/?text=${encodeURIComponent(`${activityShareText(selected)}\n\n${getActivityShareUrl(selected)}`)}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <MessageCircle size={15} /> WhatsApp
+          </a>
           <div className="vote">
             <p>Kun je op dit moment?</p>
             <button
@@ -922,12 +940,21 @@ export default function Home() {
                 <input
                   required
                   type="time"
+                  step="900"
                   value={o.time}
                   onChange={(e) =>
                     setForm({
                       ...form,
                       options: form.options.map((x, j) =>
                         j === i ? { ...x, time: e.target.value } : x,
+                      ),
+                    })
+                  }
+                  onBlur={(e) =>
+                    setForm({
+                      ...form,
+                      options: form.options.map((x, j) =>
+                        j === i ? { ...x, time: toQuarterHour(e.target.value) } : x,
                       ),
                     })
                   }
