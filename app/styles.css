@@ -88,3 +88,4 @@ header{height:58px}.intro{padding:24px 0 20px;align-items:center}.intro h1{font-
 .list-card-voting{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .voter-pill.stem-prompt{border-style:dashed;color:var(--green);border-color:#9dc1a7;background:#f3f9f4;font-weight:600}
 .vote .maybe.chosen{background:#fff1c9;border-color:#d5b640}
+@media(max-width:720px){.month-nav strong{display:none}.month-nav{gap:8px}.month-nav .month-picker{min-width:142px}}
