@@ -1,4 +1,6 @@
 import './styles.css';
+import './refinement.css';
+import SiteFooter from './site-footer';
 import PwaRegister from './pwa-register';
 
 export const metadata = {
@@ -17,5 +19,5 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }) {
-  return <html lang="nl"><body><PwaRegister />{children}</body></html>;
+  return <html lang="nl"><body><PwaRegister />{children}<SiteFooter /></body></html>;
 }
